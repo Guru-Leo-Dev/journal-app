@@ -13,9 +13,46 @@ A retro, book-style journal. HTML + CSS + JS in the browser, a small Node server
    ```
 3. Open http://localhost:3000
 
-On start the server creates the `sparse_musings` database and the `journal_entries` table if they don't exist (the same SQL is in `schema.sql` if you prefer to run it yourself).
+On start the server creates the `sparse_musings` database and tables if they don't exist, and **upgrades an existing v1 table** by adding the new `mood` column automatically (the same SQL is in `schema.sql` if you prefer to run it yourself).
 
-## Table
+## Book layout
+
+| page | what it is |
+|------|------------|
+| Cover | your cover image (themed: orange or green) |
+| i - Prologue | intro, a quote you live by, things you love, dreams & goals (pencil button edits it) |
+| ii - Mood Tracker | line of colourful faces over your last 14 moods, this month's calendar of faces, and totals |
+| 1, 2, 3 ... | one A4 page per day, sorted by date (long entries continue on the next page, nothing scrolls) |
+| last | blank page reminding you to press **+** |
+
+Left/right round buttons (or the arrow keys) turn the pages.
+
+## Mood tracker
+
+Pick how you feel in the popup when you add a day (click a face again to clear it):
+
+| value | face | colour |
+|-------|------|--------|
+| 5 | Joyful | green |
+| 4 | Good | light green |
+| 3 | Okay | yellow |
+| 2 | Low | orange |
+| 1 | Angry | red |
+
+The mood shows as a badge on that day's page and as a point on the tracker line.
+
+## Themes
+
+The palette button (top right of the book) switches between:
+
+- **Sunset** - the original orange cover
+- **Meadow** - the same design with green predominant (and an orange accent), including a recoloured cover (`cover-meadow.png`)
+
+Your choice is remembered in the browser.
+
+## Database
+
+`journal_entries`
 
 | column  | type            | notes                                   |
 |---------|-----------------|-----------------------------------------|
@@ -24,26 +61,31 @@ On start the server creates the `sparse_musings` database and the `journal_entri
 | date    | DATE            | one page per day (unique with name)     |
 | title   | VARCHAR(150)    |                                         |
 | content | TEXT            |                                         |
-| created_at / updated_at | TIMESTAMP | extras, handy later          |
+| mood    | TINYINT NULL    | 1-5, see above                          |
+| created_at / updated_at | TIMESTAMP | extras                       |
 
-Saving a date that already has a page updates that page.
+`journal_prologue` - one row per `name`: `intro`, `quote`, `loves`, `goals` (loves/goals are one item per line).
 
-## Using the journal
+## API
 
-- Page 1 is the cover. The small round buttons on the left/right turn to the previous/next page (arrow keys work too).
-- Each day is one A4 page, sorted by date. Nothing scrolls: if an entry is longer than one page, it continues onto the next page automatically.
-- The yellow **+** button opens the popup: pick a date (themed calendar, dots mark days that already have a page), add a title and write.
-- The little pencil at the bottom-left of a page edits it; the popup also has Delete.
+```
+GET    /api/entries         all pages for the journal owner
+POST   /api/entries         create or update a day  { date, title, content, mood }
+DELETE /api/entries/:id
+GET    /api/prologue
+PUT    /api/prologue        { intro, quote, loves, goals }
+```
 
 ## Files
 
 ```
-server.js          Express + mysql2 API  (GET/POST /api/entries, DELETE /api/entries/:id)
-schema.sql         table definition
-public/index.html  page shell + popup
-public/style.css   theme (palette sampled from your cover)
-public/app.js      book, page turning, pagination, date picker
-public/cover.png   your cover (cover.jpg is used as a fallback)
+server.js                 Express + mysql2 API
+schema.sql                table definitions
+public/index.html         page shell, popups, face + flower SVG symbols
+public/style.css          both themes (CSS variables) and all page styles
+public/app.js             book, page turning, pagination, mood tracker, prologue, date picker, themes
+public/cover.png/.jpg     your cover (Sunset)
+public/cover-meadow.*     green cover (Meadow)
 ```
 
 Fonts (Shrikhand for headings, Kalam for the handwriting) load from Google Fonts, so the first load needs internet. Without it the app falls back to system cursive fonts.

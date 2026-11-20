@@ -1,9 +1,13 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="sunset">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sparse Musings</title>
+  <script>
+    // apply the saved theme before first paint (no colour flash)
+    try { var t = localStorage.getItem('sm-theme'); if (t === 'sunset' || t === 'meadow') document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Kalam:wght@300;400;700&family=Shrikhand&display=swap" rel="stylesheet">
@@ -11,11 +15,11 @@
 </head>
 <body>
 
-  <!-- Retro flower, reused on the pages (same layered petals as the cover) -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <defs>
+      <!-- Retro flower (colours follow the active theme) -->
       <symbol id="flower" viewBox="-100 -100 200 200">
-        <g fill="#E5532D">
+        <g class="pf1">
           <ellipse cy="-58" rx="30" ry="42"/>
           <ellipse cy="-58" rx="30" ry="42" transform="rotate(45)"/>
           <ellipse cy="-58" rx="30" ry="42" transform="rotate(90)"/>
@@ -25,7 +29,7 @@
           <ellipse cy="-58" rx="30" ry="42" transform="rotate(270)"/>
           <ellipse cy="-58" rx="30" ry="42" transform="rotate(315)"/>
         </g>
-        <g fill="#FFAE00">
+        <g class="pf2">
           <ellipse cy="-50" rx="21" ry="32"/>
           <ellipse cy="-50" rx="21" ry="32" transform="rotate(45)"/>
           <ellipse cy="-50" rx="21" ry="32" transform="rotate(90)"/>
@@ -35,7 +39,7 @@
           <ellipse cy="-50" rx="21" ry="32" transform="rotate(270)"/>
           <ellipse cy="-50" rx="21" ry="32" transform="rotate(315)"/>
         </g>
-        <g fill="#D44B25">
+        <g class="pf3">
           <ellipse cy="-40" rx="12" ry="22"/>
           <ellipse cy="-40" rx="12" ry="22" transform="rotate(45)"/>
           <ellipse cy="-40" rx="12" ry="22" transform="rotate(90)"/>
@@ -45,7 +49,37 @@
           <ellipse cy="-40" rx="12" ry="22" transform="rotate(270)"/>
           <ellipse cy="-40" rx="12" ry="22" transform="rotate(315)"/>
         </g>
-        <circle r="20" fill="#969200"/>
+        <circle class="pf4" r="20"/>
+      </symbol>
+
+      <!-- Mood faces: 5 joyful (green) ... 1 angry (red) -->
+      <symbol id="face-5" viewBox="0 0 100 100">
+        <circle cx="50" cy="50" r="45" fill="#34B35A" stroke="#202A2B" stroke-width="5"/>
+        <path d="M24 44 Q33 31 42 44 M58 44 Q67 31 76 44" fill="none" stroke="#202A2B" stroke-width="5.5" stroke-linecap="round"/>
+        <path d="M24 57 Q50 92 76 57 Z" fill="#202A2B" stroke="#202A2B" stroke-width="4" stroke-linejoin="round"/>
+        <path d="M37 73 Q50 65 63 73 Q50 84 37 73 Z" fill="#FF8A80"/>
+      </symbol>
+      <symbol id="face-4" viewBox="0 0 100 100">
+        <circle cx="50" cy="50" r="45" fill="#9ACD32" stroke="#202A2B" stroke-width="5"/>
+        <circle cx="34" cy="42" r="5.5" fill="#202A2B"/><circle cx="66" cy="42" r="5.5" fill="#202A2B"/>
+        <path d="M29 60 Q50 82 71 60" fill="none" stroke="#202A2B" stroke-width="5.5" stroke-linecap="round"/>
+      </symbol>
+      <symbol id="face-3" viewBox="0 0 100 100">
+        <circle cx="50" cy="50" r="45" fill="#FFC21A" stroke="#202A2B" stroke-width="5"/>
+        <circle cx="34" cy="42" r="5.5" fill="#202A2B"/><circle cx="66" cy="42" r="5.5" fill="#202A2B"/>
+        <path d="M34 67 H66" fill="none" stroke="#202A2B" stroke-width="5.5" stroke-linecap="round"/>
+      </symbol>
+      <symbol id="face-2" viewBox="0 0 100 100">
+        <circle cx="50" cy="50" r="45" fill="#F7882F" stroke="#202A2B" stroke-width="5"/>
+        <circle cx="34" cy="44" r="5.5" fill="#202A2B"/><circle cx="66" cy="44" r="5.5" fill="#202A2B"/>
+        <path d="M32 74 Q50 56 68 74" fill="none" stroke="#202A2B" stroke-width="5.5" stroke-linecap="round"/>
+        <path d="M72 52 Q64 62 72 68 Q80 62 72 52 Z" fill="#7FD6FF" stroke="#202A2B" stroke-width="2.5" stroke-linejoin="round"/>
+      </symbol>
+      <symbol id="face-1" viewBox="0 0 100 100">
+        <circle cx="50" cy="50" r="45" fill="#E53935" stroke="#202A2B" stroke-width="5"/>
+        <path d="M22 30 L44 42 M78 30 L56 42" fill="none" stroke="#202A2B" stroke-width="6.5" stroke-linecap="round"/>
+        <circle cx="36" cy="52" r="5.5" fill="#202A2B"/><circle cx="64" cy="52" r="5.5" fill="#202A2B"/>
+        <path d="M31 76 Q50 58 69 76" fill="none" stroke="#202A2B" stroke-width="5.5" stroke-linecap="round"/>
       </symbol>
     </defs>
   </svg>
@@ -66,9 +100,27 @@
     <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#202A2B" stroke-width="3.6" stroke-linecap="round"><path d="M12 4v16M4 12h16"/></svg>
   </button>
 
+  <!-- Theme switcher -->
+  <div class="theme-wrap">
+    <button class="theme-btn" id="themeBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Change theme" title="Change theme">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#202A2B" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5a8.5 8.5 0 100 17c1.3 0 2-.8 2-1.8 0-1.4-1.2-1.7-1.2-2.8 0-.9.7-1.5 1.7-1.5H17a3.5 3.5 0 003.5-3.5C20.5 6.7 16.7 3.5 12 3.5z"/><circle cx="7.8" cy="11" r="1" fill="#202A2B"/><circle cx="10.6" cy="7.4" r="1" fill="#202A2B"/><circle cx="15.2" cy="7.8" r="1" fill="#202A2B"/></svg>
+    </button>
+    <div class="theme-menu" id="themeMenu" hidden>
+      <div class="theme-title">Theme</div>
+      <button type="button" class="theme-opt" data-theme-opt="sunset" aria-pressed="false">
+        <span class="swatch"><i style="background:#E5532D"></i><i style="background:#FFAE00"></i><i style="background:#F9A961"></i><i style="background:#969200"></i></span>
+        <span>Sunset <small>orange</small></span>
+      </button>
+      <button type="button" class="theme-opt" data-theme-opt="meadow" aria-pressed="false">
+        <span class="swatch"><i style="background:#2F9E57"></i><i style="background:#BDE55C"></i><i style="background:#7FD494"></i><i style="background:#E1750B"></i></span>
+        <span>Meadow <small>green</small></span>
+      </button>
+    </div>
+  </div>
+
   <div class="toast" id="toast" role="status"></div>
 
-  <!-- Add / edit popup -->
+  <!-- Add / edit a day -->
   <div class="modal" id="modal" hidden>
     <div class="modal-backdrop" data-close></div>
     <form class="sheet" id="entryForm" novalidate role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
@@ -82,6 +134,11 @@
           <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#202A2B" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
         </button>
         <div class="cal" id="cal" hidden></div>
+      </div>
+
+      <div class="field">
+        <span class="field-label">How are you feeling?</span>
+        <div class="moods" id="moods" role="group" aria-label="Mood"></div>
       </div>
 
       <div class="field">
@@ -103,6 +160,41 @@
         <span class="spacer"></span>
         <button type="button" class="btn ghost" data-close>Cancel</button>
         <button type="submit" class="btn primary" id="saveBtn">Save page</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Edit the prologue -->
+  <div class="modal" id="prologueModal" hidden>
+    <div class="modal-backdrop" data-close></div>
+    <form class="sheet" id="prologueForm" novalidate role="dialog" aria-modal="true" aria-labelledby="prologueSheetTitle">
+      <h3 class="sheet-title" id="prologueSheetTitle">Prologue</h3>
+
+      <div class="field">
+        <label for="proIntro">About me</label>
+        <textarea id="proIntro" rows="5" maxlength="450" placeholder="Who are you, and why this journal?"></textarea>
+        <div class="counter" id="proIntroCount">0 / 450</div>
+      </div>
+      <div class="field">
+        <label for="proQuote">A quote I live by</label>
+        <input id="proQuote" type="text" maxlength="140" autocomplete="off" placeholder="Something that keeps you going">
+      </div>
+      <div class="field">
+        <label for="proLoves">Things I love</label>
+        <textarea id="proLoves" rows="4" maxlength="300" placeholder="Rainy days&#10;Filter coffee&#10;Long walks"></textarea>
+        <div class="hint">One per line, up to 6.</div>
+      </div>
+      <div class="field">
+        <label for="proGoals">Dreams &amp; goals</label>
+        <textarea id="proGoals" rows="4" maxlength="300" placeholder="Write every day&#10;Learn the guitar"></textarea>
+        <div class="hint">One per line, up to 6.</div>
+      </div>
+
+      <p class="error" id="proError" role="alert" hidden></p>
+      <div class="actions">
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="submit" class="btn primary" id="proSave">Save prologue</button>
       </div>
     </form>
   </div>
