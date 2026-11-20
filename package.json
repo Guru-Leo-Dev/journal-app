@@ -1,10 +1,11 @@
 {
   "name": "sparse-musings",
-  "version": "1.0.0",
-  "description": "Sparse Musings - a retro journal web app backed by a local MySQL database",
+  "version": "2.0.0",
+  "description": "Sparse Musings - a retro journal web app backed by Supabase (PostgreSQL)",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "migrate": "node scripts/migrate-from-mysql.js"
   },
   "engines": {
     "node": ">=18"
@@ -12,6 +13,9 @@
   "dependencies": {
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
     "mysql2": "^3.11.0"
   }
 }

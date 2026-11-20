@@ -1,20 +1,40 @@
-// Sparse Musings - Express + MySQL backend
+// Sparse Musings - Express + Supabase (PostgreSQL) backend
 require('dotenv').config();
 const path = require('path');
 const express = require('express');
-const mysql = require('mysql2/promise');
+const { Pool, types } = require('pg');
 
 const PORT = Number(process.env.PORT) || 3000;
 const AUTHOR = (process.env.JOURNAL_NAME || 'leo').trim() || 'leo'; // hardcoded owner
-const DB_NAME = process.env.DB_NAME || 'sparse_musings';
 
-const dbConfig = {
-  host: process.env.DB_HOST || '127.0.0.1',
-  port: Number(process.env.DB_PORT) || 3306,
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  charset: 'utf8mb4',
-};
+// Return DATE columns as plain 'YYYY-MM-DD' strings (no timezone shifts)
+types.setTypeParser(1082, (v) => v);
+
+// ---------- Supabase connection ----------
+// DATABASE_URL is the connection string from Supabase (Connect -> Session pooler).
+function buildDbConfig() {
+  const raw = (process.env.DATABASE_URL || '').trim();
+  if (!raw || raw.includes('[YOUR-PASSWORD]')) {
+    throw new Error(
+      'DATABASE_URL is missing. Copy .env.example to .env and paste your Supabase connection string ' +
+        '(with your real database password) into it. See README.md.'
+    );
+  }
+  const u = new URL(raw);
+  return {
+    host: u.hostname,
+    port: Number(u.port) || 5432,
+    user: decodeURIComponent(u.username),
+    password: decodeURIComponent(u.password),
+    database: decodeURIComponent(u.pathname.replace(/^\//, '')) || 'postgres',
+    // Supabase requires TLS. Its certificate chain isn't in Node's default trust store,
+    // so we encrypt the connection without verifying the chain (fine for a personal app).
+    ssl: { rejectUnauthorized: false },
+    max: 5,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000,
+  };
+}
 
 const MAX_TITLE = 150;
 const MAX_CONTENT = 5000;
@@ -27,58 +47,39 @@ function isRealDate(s) {
 }
 
 async function initDatabase() {
-  // Create the database and tables if they don't exist yet
-  const boot = await mysql.createConnection(dbConfig);
-  await boot.query(
-    `CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
-  );
-  await boot.end();
+  const pool = new Pool(buildDbConfig());
+  // Idle connections can be dropped by the pooler; don't crash on that.
+  pool.on('error', (err) => console.error('Idle database client error:', err.message));
 
-  const pool = mysql.createPool({
-    ...dbConfig,
-    database: DB_NAME,
-    waitForConnections: true,
-    connectionLimit: 5,
-    dateStrings: true, // return DATE columns as 'YYYY-MM-DD' strings (no timezone shifts)
-  });
-
+  // Creates the tables if you haven't run supabase-schema.sql yet (safe to run every start)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS journal_entries (
-      id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      id         INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
       name       VARCHAR(50)  NOT NULL DEFAULT 'leo',
-      \`date\`     DATE         NOT NULL,
+      "date"     DATE         NOT NULL,
       title      VARCHAR(150) NOT NULL,
       content    TEXT         NOT NULL,
-      mood       TINYINT UNSIGNED NULL,
-      created_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      PRIMARY KEY (id),
-      UNIQUE KEY uq_name_date (name, \`date\`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      mood       SMALLINT     NULL CHECK (mood BETWEEN 1 AND 5),
+      created_at TIMESTAMPTZ  NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ  NOT NULL DEFAULT now(),
+      CONSTRAINT uq_name_date UNIQUE (name, "date")
+    )
   `);
-
-  // Upgrade an older table (created before the mood tracker existed)
-  const [cols] = await pool.query(
-    `SELECT COUNT(*) AS n FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'journal_entries' AND COLUMN_NAME = 'mood'`,
-    [DB_NAME]
-  );
-  if (!cols[0].n) {
-    await pool.query('ALTER TABLE journal_entries ADD COLUMN mood TINYINT UNSIGNED NULL AFTER content');
-    console.log('Added the mood column to journal_entries.');
-  }
-
   await pool.query(`
     CREATE TABLE IF NOT EXISTS journal_prologue (
-      name       VARCHAR(50)  NOT NULL,
+      name       VARCHAR(50)  PRIMARY KEY,
       intro      TEXT         NULL,
       quote      VARCHAR(300) NULL,
       loves      TEXT         NULL,
       goals      TEXT         NULL,
-      updated_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      PRIMARY KEY (name)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      updated_at TIMESTAMPTZ  NOT NULL DEFAULT now()
+    )
   `);
+  // Lock the tables away from Supabase's public Data API. This server connects as the
+  // database owner (which bypasses RLS), so the app still works, but nobody can read
+  // your journal through the public anon key.
+  await pool.query('ALTER TABLE journal_entries ENABLE ROW LEVEL SECURITY');
+  await pool.query('ALTER TABLE journal_prologue ENABLE ROW LEVEL SECURITY');
   return pool;
 }
 
@@ -95,8 +96,8 @@ async function main() {
   // All pages, oldest first (the book reads front to back)
   app.get('/api/entries', async (_req, res) => {
     try {
-      const [rows] = await pool.query(
-        'SELECT id, name, `date`, title, content, mood FROM journal_entries WHERE name = ? ORDER BY `date` ASC, id ASC',
+      const { rows } = await pool.query(
+        'SELECT id, name, "date", title, content, mood FROM journal_entries WHERE name = $1 ORDER BY "date" ASC, id ASC',
         [AUTHOR]
       );
       res.json({ name: AUTHOR, entries: rows });
@@ -124,15 +125,13 @@ async function main() {
     }
 
     try {
-      await pool.query(
-        `INSERT INTO journal_entries (name, \`date\`, title, content, mood)
-         VALUES (?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE title = VALUES(title), content = VALUES(content), mood = VALUES(mood)`,
+      const { rows } = await pool.query(
+        `INSERT INTO journal_entries (name, "date", title, content, mood)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (name, "date") DO UPDATE
+           SET title = EXCLUDED.title, content = EXCLUDED.content, mood = EXCLUDED.mood, updated_at = now()
+         RETURNING id, name, "date", title, content, mood`,
         [AUTHOR, date, title, content, mood]
-      );
-      const [rows] = await pool.query(
-        'SELECT id, name, `date`, title, content, mood FROM journal_entries WHERE name = ? AND `date` = ?',
-        [AUTHOR, date]
       );
       res.status(201).json(rows[0]);
     } catch (err) {
@@ -145,7 +144,7 @@ async function main() {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'Bad id.' });
     try {
-      await pool.query('DELETE FROM journal_entries WHERE id = ? AND name = ?', [id, AUTHOR]);
+      await pool.query('DELETE FROM journal_entries WHERE id = $1 AND name = $2', [id, AUTHOR]);
       res.json({ ok: true });
     } catch (err) {
       console.error(err);
@@ -157,8 +156,8 @@ async function main() {
 
   app.get('/api/prologue', async (_req, res) => {
     try {
-      const [rows] = await pool.query(
-        'SELECT intro, quote, loves, goals FROM journal_prologue WHERE name = ?',
+      const { rows } = await pool.query(
+        'SELECT intro, quote, loves, goals FROM journal_prologue WHERE name = $1',
         [AUTHOR]
       );
       const r = rows[0] || {};
@@ -177,8 +176,10 @@ async function main() {
     try {
       await pool.query(
         `INSERT INTO journal_prologue (name, intro, quote, loves, goals)
-         VALUES (?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE intro = VALUES(intro), quote = VALUES(quote), loves = VALUES(loves), goals = VALUES(goals)`,
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (name) DO UPDATE
+           SET intro = EXCLUDED.intro, quote = EXCLUDED.quote, loves = EXCLUDED.loves,
+               goals = EXCLUDED.goals, updated_at = now()`,
         [AUTHOR, intro, quote, loves, goals]
       );
       res.json({ intro, quote, loves, goals });
@@ -189,11 +190,11 @@ async function main() {
   });
 
   app.listen(PORT, () => {
-    console.log(`Sparse Musings is open at http://localhost:${PORT}  (journal of "${AUTHOR}")`);
+    console.log(`Sparse Musings is open at http://localhost:${PORT}  (journal of "${AUTHOR}", stored in Supabase)`);
   });
 }
 
 main().catch((err) => {
-  console.error('Failed to start. Check your MySQL settings in .env\n', err.message);
+  console.error('Failed to start. Check DATABASE_URL in .env\n', err.message);
   process.exit(1);
 });
