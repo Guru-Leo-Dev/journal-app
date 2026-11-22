@@ -25,7 +25,7 @@ const USE_GOOGLE = AUTH_MODE === 'google' || AUTH_MODE === 'both';
 const ALLOW_SIGNUP = String(process.env.ALLOW_SIGNUP || 'true').trim().toLowerCase() !== 'false';
 // With local sign-in, the account with this username receives the pages written before accounts existed
 const OWNER_USERNAME = (process.env.OWNER_USERNAME || LEGACY_NAME).trim().toLowerCase();
-const SESSION_SECRET = USE_LOCAL ? local.loadSecret(__dirname) : '';
+let SESSION_SECRET = '';   // loaded in createApp(), so a missing setting is reported instead of crashing
 
 // Return DATE columns as plain 'YYYY-MM-DD' strings (no timezone shifts)
 types.setTypeParser(1082, (v) => v);
@@ -36,8 +36,8 @@ function buildDbConfig() {
   const raw = (process.env.DATABASE_URL || '').trim();
   if (!raw || raw.includes('[YOUR-PASSWORD]')) {
     throw new Error(
-      'DATABASE_URL is missing. Copy .env.example to .env and paste your Supabase connection string ' +
-        '(with your real database password) into it. See README.md.'
+      'DATABASE_URL is missing. Add your Supabase connection string (with your real database password): ' +
+        'in the .env file when running locally, or under Environment Variables on Vercel. See README.md.'
     );
   }
   const u = new URL(raw);
@@ -206,6 +206,7 @@ function createApp() {
   if (USE_GOOGLE && (!SUPABASE_URL || !SUPABASE_ANON_KEY)) {
     throw new Error('AUTH_MODE=' + AUTH_MODE + ' needs SUPABASE_URL and SUPABASE_ANON_KEY in the environment settings');
   }
+  if (USE_LOCAL) SESSION_SECRET = local.loadSecret(__dirname);
   const pool = createPool();
   const app = express();
   if (process.env.VERCEL) app.set('trust proxy', 1); // real visitor IPs behind Vercel's proxy
@@ -406,7 +407,14 @@ try {
 } catch (err) {
   console.error('Failed to start. Check your settings (.env locally, Environment Variables on Vercel)\n', err.message);
   if (!process.env.VERCEL) process.exit(1);
-  throw err;
+  // On Vercel, show the problem in the browser instead of a bare "500 Internal Server Error"
+  app = express();
+  app.use((_req, res) => {
+    res.status(500).type('text/plain').send(
+      'Sparse Musings is not set up yet.\n\n' + err.message +
+      '\n\nFix: Vercel -> Project -> Settings -> Environment Variables (add them for Production), then Redeploy.\n'
+    );
+  });
 }
 
 // Vercel runs the exported app as a serverless function; locally we start a normal server.
