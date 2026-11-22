@@ -571,6 +571,12 @@ textarea {
 .login-or { margin: 14px 0; display: flex; align-items: center; gap: 12px; font: 400 15px var(--hand); opacity: .7; }
 .login-or::before, .login-or::after { content: ""; flex: 1; height: 2px; background: var(--dark); opacity: .35; }
 
+.pw-sheet { width: min(420px, 100%); }
+.pw-sheet label small { font-weight: 400; opacity: .7; }
+.pw-show { display: flex; align-items: center; gap: 8px; margin: 2px 0 6px; font: 400 18px var(--hand); cursor: pointer; }
+.pw-show input { width: 20px; height: 20px; accent-color: var(--red); }
+.theme-opt[hidden] { display: none; }
+
 @media (prefers-reduced-motion: reduce) {
   .page.turning-out, .page.turning-in, .page.under, .sheet { animation-duration: .01s !important; }
 }

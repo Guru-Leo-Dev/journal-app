@@ -796,8 +796,9 @@
     return res;
   }
 
-  function showProfile({ name, sub, pic }) {
+  function showProfile({ name, sub, pic, local }) {
     name = name || 'You';
+    $('#changePwBtn').hidden = !local;      // Google accounts have no password here
     loginEls.name.textContent = name;
     loginEls.email.textContent = sub || '';
     loginEls.initial.textContent = name.trim().charAt(0).toUpperCase();
@@ -854,6 +855,37 @@
     });
     if (error) showLogin(error.message);
   });
+  // ----- change password / PIN -----
+  const pw = { modal: $('#pwModal'), form: $('#pwForm'), cur: $('#pwCurrent'), n1: $('#pwNew'), n2: $('#pwNew2'),
+               show: $('#pwShow'), error: $('#pwError'), save: $('#pwSave') };
+  const pwFields = [pw.cur, pw.n1, pw.n2];
+  function closePw() { pw.modal.hidden = true; pw.form.reset(); pwFields.forEach((f) => { f.type = 'password'; }); pw.error.hidden = true; }
+  $('#changePwBtn').addEventListener('click', () => { closeProfileMenu(); closePw(); pw.modal.hidden = false; pw.cur.focus(); });
+  pw.modal.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) closePw(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !pw.modal.hidden) closePw(); });
+  pw.show.addEventListener('change', () => pwFields.forEach((f) => { f.type = pw.show.checked ? 'text' : 'password'; }));
+  pw.form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fail = (m) => { pw.error.textContent = m; pw.error.hidden = false; };
+    pw.error.hidden = true;
+    if (!pw.cur.value) return fail('Please enter your current password.');
+    if (pw.n1.value.length < 4) return fail('The new password must be at least 4 characters.');
+    if (pw.n1.value !== pw.n2.value) return fail("The two new passwords don't match.");
+    pw.save.disabled = true;
+    try {
+      const res = await api('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword: pw.cur.value, newPassword: pw.n1.value }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not change the password.');
+      closePw();
+      toast('Password changed.');
+    } catch (err) { fail(netError(err)); }
+    finally { pw.save.disabled = false; }
+  });
+
   loginEls.out.addEventListener('click', async () => {
     setLocalToken(null);
     clearForm();
@@ -887,7 +919,7 @@
         const r = await fetch('/api/auth/me', { headers: { Authorization: 'Bearer ' + t } });
         if (r.ok) {
           const u = await r.json();
-          showProfile({ name: u.name, sub: '@' + u.username });
+          showProfile({ name: u.name, sub: '@' + u.username, local: true });
           return true;
         }
         if (r.status === 401) setLocalToken(null);

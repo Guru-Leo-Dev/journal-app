@@ -297,7 +297,31 @@ function createApp() {
   }
 
   // Everything below needs a signed-in user
-  app.use(['/api/entries', '/api/prologue', '/api/auth/me'], requireUser(pool));
+  app.use(['/api/entries', '/api/prologue', '/api/auth/me', '/api/auth/change-password'], requireUser(pool));
+
+  // Change the password / PIN (local accounts only)
+  app.post('/api/auth/change-password', async (req, res) => {
+    if (!USE_LOCAL || !req.user.username) return res.status(400).json({ error: 'This account signs in with Google, so it has no password here.' });
+    const current = String(req.body.currentPassword || '').slice(0, 128);
+    const next = req.body.newPassword;
+    const key = 'chg|' + req.user.id;
+    if (loginLimiter.blocked(key)) return res.status(429).json({ error: 'Too many attempts. Try again in 15 minutes.' });
+    if (!local.validPassword(next)) return res.status(400).json({ error: 'The new password must be 4-128 characters.' });
+    try {
+      const { rows } = await pool.query('SELECT password_hash FROM journal_users WHERE id = $1', [req.user.id]);
+      const ok = await local.verifyPassword(current, rows[0] && rows[0].password_hash);
+      if (!rows[0] || !ok) {
+        loginLimiter.fail(key);
+        return res.status(403).json({ error: 'Your current password is wrong.' }); // not 401: that would sign you out
+      }
+      loginLimiter.clear(key);
+      await pool.query('UPDATE journal_users SET password_hash = $1 WHERE id = $2', [await local.hashPassword(next), req.user.id]);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Could not change the password.' });
+    }
+  });
   app.get('/api/auth/me', (req, res) => res.json({ name: req.user.name, username: req.user.username || '', email: req.user.email || '' }));
 
   // ---------- journal pages ----------

@@ -58,6 +58,11 @@ Uncomment the `MYSQL_*` lines in `.env`, fill them in, then run `npm run migrate
 
 On start the server creates the tables if they don't exist (same SQL as `supabase-schema.sql`).
 
+### Changing or resetting your password / PIN
+
+- **Change it:** click your profile icon -> **Change password**. Enter the current one and a new one (4+ characters, so a PIN like `1234` works).
+- **Forgot it:** run `npm run reset-password -- <username> <new-password>` on your computer (it uses the `DATABASE_URL` in `.env`, so it also fixes the account used by your Vercel site since both share one database).
+
 ## Deploy to Vercel (free)
 
 1. Put the project on GitHub (the `.env` file is git-ignored, so it is **not** uploaded) and import the repo in Vercel. Leave the build settings as detected.
@@ -148,6 +153,8 @@ PUT    /api/prologue        { intro, quote, loves, goals }
 ## Files
 
 ```
+public/favicon.ico        browser-tab icon (also .svg / .png / apple-touch)
+scripts/reset-password.js  set a new password from the command line
 server.js                 Express + pg (Supabase) API, sign-in routes
 auth-local.js             password hashing + signed login tokens (no extra packages)
 supabase-schema.sql       table definitions (PostgreSQL)
