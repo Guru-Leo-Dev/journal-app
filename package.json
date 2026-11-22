@@ -1,7 +1,7 @@
 {
   "name": "sparse-musings",
   "version": "2.0.0",
-  "description": "Sparse Musings - a retro journal web app backed by Supabase (PostgreSQL)",
+  "description": "Sparse Musings - a retro multi-user journal with Google sign-in, backed by Supabase",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

@@ -11,7 +11,31 @@ A retro, book-style journal. HTML + CSS + JS in the browser, a small Node server
 4. Replace `[YOUR-PASSWORD]` with your real database password (remove the square brackets).
 5. (Optional) Open **SQL Editor -> New query**, paste `supabase-schema.sql`, and Run. If you skip this, the server creates the tables itself on first start.
 
-## 2. Run the app
+## 2. Choose how people sign in (`AUTH_MODE` in `.env`)
+
+| AUTH_MODE | what you get | extra setup |
+|-----------|--------------|-------------|
+| `local` (default) | username + password accounts stored (hashed) in your Supabase database | none |
+| `google` | "Continue with Google" via Supabase Auth | the Google steps below |
+| `both` | both options on the login card | the Google steps below |
+
+**Local mode:** run the app, click **Create account**, pick a username and password (4+ characters). To get your old `leo` pages, register the username set in `OWNER_USERNAME` (default `leo`). Once your own account exists you can set `ALLOW_SIGNUP=false` so nobody else can register. Login tokens last 30 days and are signed with `SESSION_SECRET` (auto-created in `.session-secret` if you leave it blank); there are limits on repeated wrong passwords.
+
+### Google sign-in setup (only for `google` / `both`; free)
+
+Supabase handles the login; Google only needs a free OAuth client.
+
+1. **Google Cloud Console** (https://console.cloud.google.com) -> create a project (any name).
+2. **APIs & Services -> OAuth consent screen** (shown as *Google Auth Platform* in newer consoles): choose **External**, fill in the app name (Sparse Musings) and your email, save. Under **Audience**, leave it in *Testing* and add your own and friends' Google emails as **test users**, or click **Publish app** so anyone can sign in (basic Google sign-in needs no review).
+3. **Credentials -> Create credentials -> OAuth client ID -> Web application.**
+   - *Authorized JavaScript origins:* `http://localhost:3000`
+   - *Authorized redirect URIs:* `https://YOUR-PROJECT-REF.supabase.co/auth/v1/callback` (Supabase shows the exact URL on its Google provider page)
+   - Create, then copy the **Client ID** and **Client secret**.
+4. **Supabase -> Authentication -> Sign In / Providers -> Google:** switch it on, paste the Client ID and secret, Save.
+5. **Supabase -> Authentication -> URL Configuration:** set **Site URL** to `http://localhost:3000` and add `http://localhost:3000/**` under **Redirect URLs**.
+6. **Supabase -> Project Settings -> API Keys:** copy the **Project URL** and the **anon / publishable key** into `.env` as `SUPABASE_URL` and `SUPABASE_ANON_KEY`. Put your own Google email in `OWNER_EMAIL` so your old "leo" pages move into your account on first sign-in.
+
+## 3. Run the app
 
 ```bash
 npm install
@@ -19,11 +43,11 @@ cp .env.example .env      # then paste your DATABASE_URL into .env
 npm start
 ```
 
-Open http://localhost:3000. Check **Table Editor** in Supabase and you will see `journal_entries` and `journal_prologue` filling up as you write.
+Open http://localhost:3000, click **Continue with Google**, and your profile picture appears at the top (click it for **Sign out**). Check **Table Editor** in Supabase and you will see `journal_entries` and `journal_prologue` filling up as you write.
 
 ### Moving your old local MySQL pages (optional, one time)
 
-Uncomment the `MYSQL_*` lines in `.env`, fill them in, then run `npm run migrate`. It copies every page and your prologue into Supabase and can be re-run safely.
+Uncomment the `MYSQL_*` lines in `.env`, fill them in, then run `npm run migrate`. It copies every page and your prologue into Supabase (safe to re-run). They are attached to your account the first time you sign in with `OWNER_EMAIL`. If you already used the earlier Supabase version of this app, your `leo` pages are in the database already and are handled the same way.
 
 ### Free plan things to know
 
@@ -69,6 +93,10 @@ The palette button (top right of the book) switches between:
 
 Your choice is remembered in the browser.
 
+## Accounts
+
+Each person who signs in (with a local account or Google) gets their own private journal (their own pages, prologue and mood tracker). The server checks the login token on every request and only ever reads or writes the signed-in person's rows.
+
 ## Database
 
 `journal_entries`
@@ -76,19 +104,22 @@ Your choice is remembered in the browser.
 | column  | type            | notes                                   |
 |---------|-----------------|-----------------------------------------|
 | id      | INTEGER, PK, identity |                                   |
-| name    | VARCHAR(50)     | hardcoded to `leo` (`JOURNAL_NAME` in .env) |
+| user_id | UUID            | the signed-in Supabase user (unique with date) |
+| name    | VARCHAR(50)     | display name, for reference             |
 | date    | DATE            | one page per day (unique with name)     |
 | title   | VARCHAR(150)    |                                         |
 | content | TEXT            |                                         |
 | mood    | SMALLINT NULL   | 1-5, see above                          |
 | created_at / updated_at | TIMESTAMPTZ | extras                     |
 
-`journal_prologue` - one row per `name`: `intro`, `quote`, `loves`, `goals` (loves/goals are one item per line).
+`journal_prologue` - one row per `user_id`: `intro`, `quote`, `loves`, `goals` (loves/goals are one item per line).
 
 ## API
 
 ```
-GET    /api/entries         all pages for the journal owner
+GET    /api/config          public: Supabase URL + anon key for the login button
+(all routes below need an Authorization: Bearer <token> header)
+GET    /api/entries         all pages for the signed-in user
 POST   /api/entries         create or update a day  { date, title, content, mood }
 DELETE /api/entries/:id
 GET    /api/prologue
@@ -98,7 +129,8 @@ PUT    /api/prologue        { intro, quote, loves, goals }
 ## Files
 
 ```
-server.js                 Express + pg (Supabase) API
+server.js                 Express + pg (Supabase) API, sign-in routes
+auth-local.js             password hashing + signed login tokens (no extra packages)
 supabase-schema.sql       table definitions (PostgreSQL)
 scripts/migrate-from-mysql.js  one-time copy from your old local MySQL
 public/index.html         page shell, popups, face + flower SVG symbols

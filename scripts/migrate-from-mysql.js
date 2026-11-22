@@ -26,17 +26,20 @@ types.setTypeParser(1082, (v) => v);
 
   const [entries] = await my.query('SELECT name, `date`, title, content, mood FROM journal_entries ORDER BY `date`');
   for (const e of entries) {
+    // user_id stays empty; it is filled in when OWNER_EMAIL first signs in
     await pg.query(
-      `INSERT INTO journal_entries (name, "date", title, content, mood) VALUES ($1,$2,$3,$4,$5)
-       ON CONFLICT (name, "date") DO UPDATE SET title=EXCLUDED.title, content=EXCLUDED.content, mood=EXCLUDED.mood`,
+      `INSERT INTO journal_entries (name, "date", title, content, mood)
+       SELECT $1::varchar, $2::date, $3::varchar, $4::text, $5::smallint
+       WHERE NOT EXISTS (SELECT 1 FROM journal_entries WHERE user_id IS NULL AND name = $1 AND "date" = $2::date)`,
       [e.name, e.date, e.title, e.content, e.mood]
     );
   }
   const [pro] = await my.query('SELECT name, intro, quote, loves, goals FROM journal_prologue');
   for (const p of pro) {
     await pg.query(
-      `INSERT INTO journal_prologue (name, intro, quote, loves, goals) VALUES ($1,$2,$3,$4,$5)
-       ON CONFLICT (name) DO UPDATE SET intro=EXCLUDED.intro, quote=EXCLUDED.quote, loves=EXCLUDED.loves, goals=EXCLUDED.goals`,
+      `INSERT INTO journal_prologue (name, intro, quote, loves, goals)
+       SELECT $1::varchar, $2::text, $3::varchar, $4::text, $5::text
+       WHERE NOT EXISTS (SELECT 1 FROM journal_prologue WHERE user_id IS NULL AND name = $1)`,
       [p.name, p.intro, p.quote, p.loves, p.goals]
     );
   }

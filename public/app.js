@@ -397,6 +397,7 @@
   }
   function closeThemeMenu() { els.themeMenu.hidden = true; els.themeBtn.setAttribute('aria-expanded', 'false'); }
   els.themeBtn.addEventListener('click', (e) => {
+    if (typeof closeProfileMenu === 'function') closeProfileMenu();
     e.stopPropagation();
     const open = els.themeMenu.hidden;
     els.themeMenu.hidden = !open;
@@ -421,7 +422,7 @@
 
   async function loadEntries() {
     try {
-      const res = await fetch('/api/entries', { headers: { Accept: 'application/json' } });
+      const res = await api('/api/entries');
       if (!res.ok) throw new Error('bad status ' + res.status);
       const data = await res.json();
       state.entries = Array.isArray(data.entries) ? data.entries : [];
@@ -433,7 +434,7 @@
   }
   async function loadPrologue() {
     try {
-      const res = await fetch('/api/prologue', { headers: { Accept: 'application/json' } });
+      const res = await api('/api/prologue');
       if (!res.ok) throw new Error('bad status ' + res.status);
       const d = await res.json();
       state.prologue = { intro: d.intro || '', quote: d.quote || '', loves: d.loves || '', goals: d.goals || '' };
@@ -533,7 +534,7 @@
 
     els.save.disabled = true;
     try {
-      const res = await fetch('/api/entries', {
+      const res = await api('/api/entries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ date: form.date, title, content, mood: form.mood }),
@@ -562,7 +563,7 @@
       return;
     }
     try {
-      const res = await fetch('/api/entries/' + existing.id, { method: 'DELETE' });
+      const res = await api('/api/entries/' + existing.id, { method: 'DELETE' });
       if (!res.ok) throw new Error('Could not delete the page.');
       const before = state.pages.findIndex((p) => p.entry && p.entry.id === existing.id);
       closeModal();
@@ -596,7 +597,7 @@
     els.proError.hidden = true;
     els.proSave.disabled = true;
     try {
-      const res = await fetch('/api/prologue', {
+      const res = await api('/api/prologue', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -715,6 +716,208 @@
 
   window.addEventListener('resize', fit);
 
+
+  // ---------- sign in: local username + password and/or Google (chosen by AUTH_MODE in .env) ----------
+  let sb = null;      // Supabase client (only when Google sign-in is on)
+  const TOKEN_KEY = 'sm-token';
+  const getLocalToken = () => { try { return localStorage.getItem(TOKEN_KEY); } catch (e) { return null; } };
+  const setLocalToken = (t) => { try { if (t) localStorage.setItem(TOKEN_KEY, t); else localStorage.removeItem(TOKEN_KEY); } catch (e) { /* private mode */ } };
+
+  const loginEls = {
+    login: $('#login'), google: $('#googleBtn'), error: $('#loginError'), or: $('#loginOr'),
+    form: $('#localForm'), tabs: $('#loginTabs'), nameIn: $('#lgName'), userIn: $('#lgUser'), passIn: $('#lgPass'), submit: $('#lgSubmit'),
+    wrap: $('#profileWrap'), btn: $('#profileBtn'), menu: $('#profileMenu'),
+    img: $('#profileImg'), initial: $('#profileInitial'), name: $('#profileName'),
+    email: $('#profileEmail'), out: $('#signOutBtn'),
+  };
+  let authTab = 'login';
+
+  // show / hide the password
+  function setPasswordVisible(show) {
+    loginEls.passIn.type = show ? 'text' : 'password';
+    const eye = $('#passEye');
+    eye.setAttribute('aria-pressed', String(show));
+    eye.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+    eye.title = show ? 'Hide password' : 'Show password';
+    eye.querySelector('.eye-open').toggleAttribute('hidden', show);
+    eye.querySelector('.eye-shut').toggleAttribute('hidden', !show);
+  }
+  $('#passEye').addEventListener('click', () => { setPasswordVisible(loginEls.passIn.type === 'password'); loginEls.passIn.focus(); });
+
+  // wipe everything typed into the form (and hide the password again)
+  function clearForm() {
+    loginEls.form.reset();
+    loginEls.nameIn.value = loginEls.userIn.value = loginEls.passIn.value = '';
+    setPasswordVisible(false);
+  }
+  // coming back with the Back button must not bring old details back
+  window.addEventListener('pageshow', (e) => { if (e.persisted) clearForm(); });
+
+  function showLogin(msg) {
+    loginEls.wrap.hidden = true;
+    loginEls.login.hidden = false;
+    loginEls.google.disabled = false;
+    loginEls.submit.disabled = false;
+    loginEls.error.hidden = !msg;
+    loginEls.error.textContent = msg || '';
+    if (msg) loginEls.passIn.value = '';        // never keep a password after a failed try
+  }
+  function setTab(t) {
+    authTab = t;
+    loginEls.tabs.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tab === t)));
+    loginEls.nameIn.hidden = t !== 'register';
+    loginEls.submit.textContent = t === 'register' ? 'Create account' : 'Sign in';
+    clearForm();
+    loginEls.error.hidden = true;
+  }
+  loginEls.tabs.addEventListener('click', (e) => { const b = e.target.closest('button[data-tab]'); if (b) setTab(b.dataset.tab); });
+
+  // the token to send: our own (local sign-in) or Supabase's (Google)
+  async function currentToken() {
+    const t = getLocalToken();
+    if (t) return t;
+    if (sb) { const { data } = await sb.auth.getSession(); return data.session && data.session.access_token; }
+    return null;
+  }
+
+  // fetch() that attaches the signed-in user's token
+  async function api(url, opts = {}) {
+    const token = await currentToken();
+    if (!token) { showLogin(); throw new Error('Please sign in.'); }
+    const res = await fetch(url, {
+      ...opts,
+      headers: { Accept: 'application/json', ...(opts.headers || {}), Authorization: 'Bearer ' + token },
+    });
+    if (res.status === 401) {
+      setLocalToken(null);
+      showLogin('Your session expired. Please sign in again.');
+      throw new Error('Please sign in again.');
+    }
+    return res;
+  }
+
+  function showProfile({ name, sub, pic }) {
+    name = name || 'You';
+    loginEls.name.textContent = name;
+    loginEls.email.textContent = sub || '';
+    loginEls.initial.textContent = name.trim().charAt(0).toUpperCase();
+    if (pic) {
+      loginEls.img.onerror = () => { loginEls.img.hidden = true; };
+      loginEls.img.src = pic;
+      loginEls.img.hidden = false;
+    } else { loginEls.img.hidden = true; }
+    loginEls.wrap.hidden = false;
+    loginEls.login.hidden = true;
+  }
+
+  function closeProfileMenu() { loginEls.menu.hidden = true; loginEls.btn.setAttribute('aria-expanded', 'false'); }
+  loginEls.btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = loginEls.menu.hidden;
+    closeThemeMenu();
+    loginEls.menu.hidden = !open;
+    loginEls.btn.setAttribute('aria-expanded', String(open));
+  });
+  document.addEventListener('click', (e) => { if (!loginEls.wrap.contains(e.target)) closeProfileMenu(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeProfileMenu(); });
+
+  // local sign in / create account
+  loginEls.form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = loginEls.userIn.value.trim();
+    const password = loginEls.passIn.value;
+    if (!username || !password) return showLogin('Please enter a username and password.');
+    loginEls.submit.disabled = true;
+    loginEls.error.hidden = true;
+    try {
+      const res = await fetch('/api/auth/' + (authTab === 'register' ? 'register' : 'login'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, displayName: loginEls.nameIn.value }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+      setLocalToken(data.token);
+      clearForm();
+      window.location.reload();
+    } catch (err) {
+      showLogin(err instanceof TypeError ? "Couldn't reach the server. Is it running?" : err.message);
+    }
+  });
+
+  loginEls.google.addEventListener('click', async () => {
+    loginEls.google.disabled = true;
+    loginEls.error.hidden = true;
+    const { error } = await sb.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin + '/' },
+    });
+    if (error) showLogin(error.message);
+  });
+  loginEls.out.addEventListener('click', async () => {
+    setLocalToken(null);
+    clearForm();
+    if (sb) { try { await sb.auth.signOut(); } catch (e) { /* ignore */ } }
+    window.location.reload();
+  });
+
+  // returns something truthy when somebody is signed in
+  async function startAuth() {
+    let cfg;
+    try {
+      const r = await fetch('/api/config');
+      cfg = await r.json();
+      if (!r.ok) throw new Error(cfg.error || 'Server is not configured.');
+    } catch (err) {
+      showLogin(err instanceof TypeError ? "Couldn't reach the server. Is it running?" : err.message);
+      loginEls.submit.disabled = true; loginEls.google.disabled = true;
+      return null;
+    }
+    clearForm();
+    // show the sign-in methods that are switched on
+    loginEls.form.hidden = !cfg.local;
+    loginEls.tabs.hidden = !cfg.allowSignup;
+    loginEls.google.hidden = !cfg.google;
+    loginEls.or.hidden = !(cfg.local && cfg.google);
+
+    // 1) a local session?
+    const t = getLocalToken();
+    if (t && cfg.local) {
+      try {
+        const r = await fetch('/api/auth/me', { headers: { Authorization: 'Bearer ' + t } });
+        if (r.ok) {
+          const u = await r.json();
+          showProfile({ name: u.name, sub: '@' + u.username });
+          return true;
+        }
+        if (r.status === 401) setLocalToken(null);
+      } catch (err) {
+        showLogin("Couldn't reach the server. Is it running?");
+        return null;
+      }
+    }
+    // 2) a Google session?
+    if (cfg.google) {
+      if (!window.supabase) {
+        loginEls.google.disabled = true;
+        showLogin("Couldn't load Google sign-in. Check your internet connection.");
+        return null;
+      }
+      sb = window.supabase.createClient(cfg.google.supabaseUrl, cfg.google.supabaseAnonKey, {
+        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+      });
+      const { data, error } = await sb.auth.getSession();   // also completes the Google redirect
+      if (!error && data.session) {
+        const u = data.session.user, meta = u.user_metadata || {};
+        showProfile({ name: meta.full_name || meta.name || (u.email || '').split('@')[0], sub: u.email, pic: meta.avatar_url || meta.picture });
+        return data.session;
+      }
+      if (error) { showLogin(error.message); return null; }
+    }
+    showLogin();
+    return null;
+  }
+
   // ---------- start ----------
   async function waitForFonts() {
     if (!document.fonts || !document.fonts.load) return;
@@ -734,6 +937,8 @@
     // the cover shows straight away; pages are measured once the fonts are ready
     state.pages = [{ type: 'cover' }, { type: 'blank' }];
     showPage(0, null);
+    const session = await startAuth();
+    if (!session) { waitForFonts(); return; }          // the login card is showing
     await Promise.all([waitForFonts(), loadEntries(), loadPrologue()]);
     buildPages();
     updateNav();
