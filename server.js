@@ -66,11 +66,16 @@ function isRealDate(s) {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
 }
 
-async function initDatabase() {
-  const pool = new Pool(buildDbConfig());
+function createPool() {
+  const cfg = buildDbConfig();
+  if (process.env.VERCEL) { cfg.max = 1; cfg.idleTimeoutMillis = 10000; } // one connection per serverless instance
+  const pool = new Pool(cfg);
   // Idle connections can be dropped by the pooler; don't crash on that.
   pool.on('error', (err) => console.error('Idle database client error:', err.message));
+  return pool;
+}
 
+async function ensureSchema(pool) {
   // Creates / upgrades the tables (safe to run every start)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS journal_entries (
@@ -122,7 +127,6 @@ async function initDatabase() {
   await pool.query('ALTER TABLE journal_entries ENABLE ROW LEVEL SECURITY');
   await pool.query('ALTER TABLE journal_prologue ENABLE ROW LEVEL SECURITY');
   await pool.query('ALTER TABLE journal_users ENABLE ROW LEVEL SECURITY');
-  return pool;
 }
 
 const clean = (v, max) => String(v == null ? '' : v).replace(/\r\n/g, '\n').trim().slice(0, max);
@@ -198,12 +202,28 @@ function requireUser(pool) {
   };
 }
 
-async function main() {
+function createApp() {
   if (USE_GOOGLE && (!SUPABASE_URL || !SUPABASE_ANON_KEY)) {
-    throw new Error('AUTH_MODE=' + AUTH_MODE + ' needs SUPABASE_URL and SUPABASE_ANON_KEY in .env');
+    throw new Error('AUTH_MODE=' + AUTH_MODE + ' needs SUPABASE_URL and SUPABASE_ANON_KEY in the environment settings');
   }
-  const pool = await initDatabase();
+  const pool = createPool();
   const app = express();
+  if (process.env.VERCEL) app.set('trust proxy', 1); // real visitor IPs behind Vercel's proxy
+
+  // The tables are checked once per server instance, before the first API call that needs them
+  let schemaReady = null;
+  const ready = () => (schemaReady = schemaReady || ensureSchema(pool));
+  app.locals.ready = ready;
+  app.use('/api', async (req, res, next) => {
+    if (req.path === '/config') return next();   // the login page can load even if the database is down
+    try { await ready(); next(); }
+    catch (err) {
+      schemaReady = null;                        // try again on the next request
+      console.error('Database setup failed:', err.message);
+      res.status(500).json({ error: 'Could not reach the database. Check DATABASE_URL.' });
+    }
+  });
+
   app.use(express.json({ limit: '200kb' }));
   app.use(express.static(path.join(__dirname, 'public')));
 
@@ -377,12 +397,27 @@ async function main() {
     }
   });
 
-  app.listen(PORT, () => {
-    console.log(`Sparse Musings is open at http://localhost:${PORT}  (sign-in: ${AUTH_MODE})`);
-  });
+  return app;
 }
 
-main().catch((err) => {
-  console.error('Failed to start. Check DATABASE_URL in .env\n', err.message);
-  process.exit(1);
-});
+let app;
+try {
+  app = createApp();
+} catch (err) {
+  console.error('Failed to start. Check your settings (.env locally, Environment Variables on Vercel)\n', err.message);
+  if (!process.env.VERCEL) process.exit(1);
+  throw err;
+}
+
+// Vercel runs the exported app as a serverless function; locally we start a normal server.
+module.exports = app;
+if (!process.env.VERCEL && require.main === module) {
+  app.locals.ready()
+    .then(() => app.listen(PORT, () => {
+      console.log(`Sparse Musings is open at http://localhost:${PORT}  (sign-in: ${AUTH_MODE})`);
+    }))
+    .catch((err) => {
+      console.error('Failed to start. Check DATABASE_URL in .env\n', err.message);
+      process.exit(1);
+    });
+}

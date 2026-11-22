@@ -49,16 +49,27 @@ function verifyToken(secret, token) {
 }
 const isLocalToken = (t) => String(t || '').startsWith(TOKEN_PREFIX + '.');
 
-// ---- the secret that signs tokens: SESSION_SECRET, or a random one saved next to the app ----
+// ---- the secret that signs tokens ----
+// 1) SESSION_SECRET from the environment (best; required on hosts like Vercel)
+// 2) a random one saved in .session-secret next to the app (local use)
+// 3) if the disk is read-only (serverless), one derived from DATABASE_URL, which is secret and
+//    identical on every server instance, so logins keep working. Set SESSION_SECRET to override.
 function loadSecret(dir) {
   const fromEnv = (process.env.SESSION_SECRET || '').trim();
   if (fromEnv.length >= 16) return fromEnv;
   const file = path.join(dir, '.session-secret');
   try { const s = fs.readFileSync(file, 'utf8').trim(); if (s.length >= 16) return s; } catch (e) { /* create it */ }
   const s = crypto.randomBytes(32).toString('hex');
-  fs.writeFileSync(file, s + '\n', { mode: 0o600 });
-  console.log('Created .session-secret (keeps you signed in across restarts). Keep it private.');
-  return s;
+  try {
+    fs.writeFileSync(file, s + '\n', { mode: 0o600 });
+    console.log('Created .session-secret (keeps you signed in across restarts). Keep it private.');
+    return s;
+  } catch (e) {
+    const base = (process.env.DATABASE_URL || '').trim();
+    if (!base) throw new Error('Set SESSION_SECRET (any long random text) in the environment settings.');
+    console.warn('SESSION_SECRET is not set; deriving it from DATABASE_URL. Set SESSION_SECRET for a dedicated secret.');
+    return crypto.createHmac('sha256', 'sparse-musings-session-v1').update(base).digest('hex');
+  }
 }
 
 // ---- input checks ----

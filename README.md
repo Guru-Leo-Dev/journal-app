@@ -58,6 +58,25 @@ Uncomment the `MYSQL_*` lines in `.env`, fill them in, then run `npm run migrate
 
 On start the server creates the tables if they don't exist (same SQL as `supabase-schema.sql`).
 
+## Deploy to Vercel (free)
+
+1. Put the project on GitHub (the `.env` file is git-ignored, so it is **not** uploaded) and import the repo in Vercel. Leave the build settings as detected.
+2. In Vercel -> **Project -> Settings -> Environment Variables**, add the values you have in `.env`:
+
+   | name | value |
+   |------|-------|
+   | `DATABASE_URL` | Supabase -> Connect -> **Transaction pooler** string (port **6543**), with your password. Serverless works best with this one. |
+   | `AUTH_MODE` | `local` (or `google` / `both`) |
+   | `SESSION_SECRET` | any long random text (20+ characters); signs the login tokens |
+   | `OWNER_USERNAME` | `leo` (receives your old pages) |
+   | `ALLOW_SIGNUP` | `true` for now; set to `false` after you've created your account |
+   | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `OWNER_EMAIL` | only for Google sign-in |
+
+3. **Redeploy** (environment variables only apply to new deployments).
+4. Google sign-in only: add your Vercel address (e.g. `https://your-app.vercel.app`) to Google's *Authorized JavaScript origins* and to Supabase -> Authentication -> URL Configuration (Site URL / Redirect URLs).
+
+Vercel's disk is read-only, so nothing is saved to files there; everything lives in Supabase. The wrong-password lockout is counted per server instance, so on Vercel it is a soft limit.
+
 ## Book layout
 
 | page | what it is |
